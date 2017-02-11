@@ -1,0 +1,2 @@
+- [ ] Fewer goroutines?
+- [ ] Remove need for client slice
