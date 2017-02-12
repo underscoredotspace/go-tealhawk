@@ -1,2 +1,2 @@
 - [ ] Fewer goroutines?
-- [ ] Remove need for client slice
+- [X] Remove need for client slice

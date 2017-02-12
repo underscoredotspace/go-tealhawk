@@ -4,8 +4,13 @@ angular.module('tweetApp', [])
   return {
     restrict: 'C',
     link: function(scope, element, attribs) {
+      scope.tweets = []
       tweetService(function(tweet) {
-        console.log(tweet.text)
+          scope.tweets.unshift(tweet)
+          if (scope.tweets.length>=50) scope.tweets.splice(40, 10)
+          setTimeout(function() {
+            scope.$apply()
+          }, 0)
       })
     }
   }

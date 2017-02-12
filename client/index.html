@@ -1,12 +1,15 @@
+<!DOCTYPE html>
 <html data-ng-app="tweetApp">
 <head>
   <title>Tweets!</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, minimum-scale=1, initial-scale=1, user-scalable=yes, minimal-ui">
+  <link href="style.css" rel="stylesheet" type="text/css">
 </head>
 <body>
   <div class="tweets">
-    <div data-ng-repeat="tweet in tweets track by $index"></div>
+    <div class="tweet" data-ng-repeat="tweet in tweets track by tweet.id_str">{{tweet.text}}</div>
   </div>
-
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/1.7.2/socket.io.min.js" integrity="sha256-WKvqiY0jZHWQZIohYEmr9KUC5rEaYEOFTq+ByllJK8w=" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/angular.js/1.6.1/angular.min.js" integrity="sha256-3SrLjPeRPa1ofM280r+OMcUjJZKLWJHr6SRtRu3dRb0=" crossorigin="anonymous"></script>

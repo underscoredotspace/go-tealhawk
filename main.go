@@ -2,13 +2,13 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"encoding/json"
 
 	"github.com/dghubble/go-twitter/twitter"
 	"github.com/dghubble/oauth1"
@@ -23,82 +23,88 @@ type keys struct {
 	AccessSecret   string `json:"accessSecret"`
 }
 
-type wsClients []socketio.Socket
-
-func saveTweet(t *twitter.Tweet) {
-	// save tweet to mongodb
+type ws struct {
+	Server *socketio.Server
 }
 
-func printTweet(t *twitter.Tweet) {
-	green := color.New(color.FgHiGreen, color.Bold).SprintfFunc()
-	// print tweet to cli for development
-	fmt.Println(green(t.User.ScreenName), t.Text)
-}
+func main() {
+	ws := new(ws)
+	if err := ws.start(); err != nil {
+		log.Fatalln("Failed to create ws:", err)
+	}
 
-func (clients *wsClients) emitTweet(tweet *twitter.Tweet) {
-	tweetJSON, _ := json.Marshal(tweet)
-	for _, client := range *clients {
-		client.Emit("tweet", string(tweetJSON))
+	tweets := make(chan *twitter.Tweet, 20)
+
+	err := newTweetStream(tweets)
+	if err != nil {
+		log.Fatalln("Failed to start Twitter stream:", err)
+	}
+
+	for tweet := range tweets {
+		tweet := tweet
+		go ws.send(tweet)
 	}
 }
 
-func (clients *wsClients) startServer() {
+// Start() starts our ws service and serves stream and client
+func (ws *ws) start() error {
 	server, err := socketio.NewServer(nil)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	red := color.New(color.FgHiRed, color.Bold).SprintfFunc()
 	server.On("connection", func(socket socketio.Socket) {
-		*clients = append(*clients, socket)
-		log.Println(red("New client added: "), len(*clients))
-
-		socket.On("disconnection", func() {
-			newClients := make(wsClients, 0, len(*clients)-1)
-			for _, client := range *clients {
-				if client.Id() != socket.Id() {
-					newClients = append(newClients, client)
-				}
-			}
-			*clients = newClients
-			log.Println(red("Client removed: "), len(*clients))
-		})
+		socket.Join("tweets")
 	})
+
+	ws.Server = server
 
 	http.Handle("/socket.io/", server)
 	http.Handle("/", http.FileServer(http.Dir("./client")))
-	log.Println(red("Webserver started"))
+
 	go func() {
 		log.Fatal(http.ListenAndServe("0.0.0.0:5000", nil))
 	}()
 
+	red := color.New(color.FgHiRed, color.Bold).SprintfFunc()
+	log.Println(red("Webserver started"))
+
+	return nil
 }
 
-func main() {
-	red := color.New(color.FgHiRed, color.Bold).SprintfFunc()
+// Send() broadcasts new tweet to connected clients
+func (ws *ws) send(tweet *twitter.Tweet) error {
+	tweetJSON, err := json.Marshal(tweet)
+	if err != nil {
+		return err
+	}
+	ws.Server.BroadcastTo("tweets", "tweet", string(tweetJSON))
+	return nil
+}
 
-	ws := new(wsClients)
-	ws.startServer()
+// newTweetStream() starts new Twitter stream and returns channel for new tweets
+func newTweetStream(tweets chan *twitter.Tweet) (err error) {
+	keys := new(keys)
+	err = keys.get()
+	if err != nil {
+		return
+	}
 
-	twitterKeys := new(keys)
-	twitterKeys.get("settings.json")
-	config := oauth1.NewConfig(twitterKeys.ConsumerKey, twitterKeys.ConsumerSecret)
-	token := oauth1.NewToken(twitterKeys.AccessToken, twitterKeys.AccessSecret)
+	config := oauth1.NewConfig(keys.ConsumerKey, keys.ConsumerSecret)
+	token := oauth1.NewToken(keys.AccessToken, keys.AccessSecret)
 	httpClient := config.Client(oauth1.NoContext, token)
 	client := twitter.NewClient(httpClient)
 	demux := twitter.NewSwitchDemux()
-
-	demux.Warning = func(warning *twitter.StallWarning) {
-		log.Println(warning.Message)
-	}
 
 	demux.Tweet = func(tweet *twitter.Tweet) {
 		if tweet.RetweetedStatus != nil || tweet.QuotedStatus != nil {
 			return
 		}
-		//go printTweet(tweet)
-		go saveTweet(tweet)
-		go ws.emitTweet(tweet)
+		tweets <- tweet
+	}
+
+	demux.Warning = func(warning *twitter.StallWarning) {
+		log.Println(warning.Message)
 	}
 
 	filterParams := &twitter.StreamFilterParams{
@@ -112,18 +118,24 @@ func main() {
 	// Receive messages until stopped or stream quits
 	go demux.HandleChan(stream.Messages)
 
-	// Wait for SIGINT and SIGTERM (HIT CTRL-C)
-	ch := make(chan os.Signal)
-	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-	log.Println(<-ch)
+	red := color.New(color.FgHiRed, color.Bold).SprintfFunc()
+	log.Println(red("Twitter stream started"))
 
-	fmt.Println(red("Closing Stream"))
-	stream.Stop()
+	go func() {
+		// Wait for SIGINT and SIGTERM (HIT CTRL-C)
+		ch := make(chan os.Signal)
+		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+		<-ch
+		log.Println(red("Twitter stream stopping..."))
+		stream.Stop()
+		os.Exit(0)
+	}()
+	return
 }
 
-// Temporary arrangement for ease developing
-func (k *keys) get(filename string) error {
-	configfile, err := os.Open(filename)
+// Temporary arrangement to ease development
+func (k *keys) get() error {
+	configfile, err := os.Open("settings.json")
 	if err != nil {
 		return err
 	}
