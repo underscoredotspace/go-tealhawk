@@ -10,6 +10,8 @@ import (
 
 	"encoding/json"
 
+	"time"
+
 	"github.com/dghubble/go-twitter/twitter"
 	"github.com/dghubble/oauth1"
 	"github.com/fatih/color"
@@ -28,6 +30,8 @@ type ws struct {
 }
 
 func main() {
+	var tweetCount float64
+
 	ws := new(ws)
 	if err := ws.start(); err != nil {
 		log.Fatalln("Failed to create ws:", err)
@@ -40,9 +44,20 @@ func main() {
 		log.Fatalln("Failed to start Twitter stream:", err)
 	}
 
+	startTime := time.Now()
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			seconds := float64(time.Since(startTime) / 1000000000)
+			tps := int64(tweetCount / seconds)
+			log.Println(tps, "🐦 / ⏱️")
+		}
+	}()
+
 	for tweet := range tweets {
 		tweet := tweet
 		go ws.send(tweet)
+		tweetCount++
 	}
 }
 
