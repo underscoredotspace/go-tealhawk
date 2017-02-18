@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -29,9 +30,12 @@ type ws struct {
 	Server *socketio.Server
 }
 
-func main() {
-	var tweetCount float64
+type tweetCounter struct {
+	start time.Time
+	count float64
+}
 
+func main() {
 	ws := new(ws)
 	if err := ws.start(); err != nil {
 		log.Fatalln("Failed to create ws:", err)
@@ -44,20 +48,13 @@ func main() {
 		log.Fatalln("Failed to start Twitter stream:", err)
 	}
 
-	startTime := time.Now()
-	go func() {
-		for {
-			time.Sleep(5 * time.Second)
-			seconds := float64(time.Since(startTime) / 1000000000)
-			tps := int64(tweetCount / seconds)
-			log.Println(tps, "🐦 / ⏱️")
-		}
-	}()
+	tweetCounter := new(tweetCounter)
+	go tweetCounter.monitor(5)
 
 	for tweet := range tweets {
 		tweet := tweet
 		go ws.send(tweet)
-		tweetCount++
+		tweetCounter.count++
 	}
 }
 
@@ -148,6 +145,17 @@ func newTweetStream(tweets chan *twitter.Tweet) (err error) {
 	return
 }
 
+//
+func (tc *tweetCounter) monitor(interval time.Duration) {
+	for {
+		tc.start = time.Now()
+		tc.count = 0
+		time.Sleep(interval * time.Second)
+		seconds := float64(time.Since(tc.start) / 1000000000)
+		log.Printf("%.1f t/s\n", toFixed(tc.count/seconds, 1))
+	}
+}
+
 // Temporary arrangement to ease development
 func (k *keys) get() error {
 	configfile, err := os.Open("settings.json")
@@ -168,4 +176,13 @@ func (k *keys) get() error {
 	}
 
 	return nil
+}
+
+func round(num float64) int {
+	return int(num + math.Copysign(0.5, num))
+}
+
+func toFixed(num float64, precision int) float64 {
+	output := math.Pow(10, float64(precision))
+	return float64(round(num*output)) / output
 }
